@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Patch Sheet — Admin</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:#0A0C11; --surface:#12151D; --card:#171B26;
+  --border:#222736; --border2:#2C3248;
+  --amber:#F0A830; --amber-bg:rgba(240,168,48,0.10);
+  --text:#EEF0F5; --muted:#7A8599; --dim:#3E4860; --green:#3ECF6A; --red:#E07070;
+  --mono:'JetBrains Mono',monospace; --sans:'Inter',-apple-system,sans-serif;
+}
+body { min-height:100vh; background:var(--bg); color:var(--text); font-family:var(--sans); padding:1.5rem; }
+
+/* ── LÅS-SKÄRM ── */
+#lock { min-height:80vh; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1rem; }
+#lock input { background:var(--card); border:1px solid var(--border2); border-radius:8px; color:var(--text); font-family:var(--mono); font-size:0.9rem; padding:0.7rem 1rem; width:100%; max-width:280px; text-align:center; outline:none; }
+#lock input:focus { border-color:var(--amber); }
+#lock button { background:var(--amber); color:#0A0C11; font-family:var(--mono); font-size:0.75rem; font-weight:700; letter-spacing:0.06em; border:none; border-radius:8px; padding:0.7rem 1.4rem; cursor:pointer; }
+#lock-error { color:var(--red); font-family:var(--mono); font-size:0.7rem; display:none; }
+
+/* ── DASHBOARD ── */
+#dashboard { display:none; max-width:720px; margin:0 auto; }
+h1 { font-family:var(--mono); font-size:0.85rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--amber); margin-bottom:1.5rem; }
+.card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1.25rem; margin-bottom:1rem; }
+.card-label { font-family:var(--mono); font-size:0.65rem; color:var(--muted); letter-spacing:0.06em; text-transform:uppercase; margin-bottom:0.5rem; }
+.card-value { font-family:var(--mono); font-size:1.8rem; font-weight:700; color:var(--text); }
+.card-sub { font-size:0.78rem; color:var(--dim); margin-top:0.3rem; }
+.grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
+
+#refresh-btn { background:none; border:1px solid var(--border2); border-radius:8px; color:var(--muted); font-family:var(--mono); font-size:0.7rem; letter-spacing:0.06em; padding:0.55rem 1rem; cursor:pointer; margin-bottom:1.5rem; }
+#refresh-btn:hover { border-color:var(--amber); color:var(--amber); }
+#refresh-btn:disabled { opacity:0.5; cursor:wait; }
+
+#last-updated { font-family:var(--mono); font-size:0.65rem; color:var(--dim); margin-bottom:1.5rem; }
+
+.quota-bar-track { background:var(--card); border-radius:6px; height:10px; overflow:hidden; margin-top:0.6rem; }
+.quota-bar-fill { background:var(--green); height:100%; transition:width 0.3s, background 0.3s; }
+.quota-bar-fill.warn { background:var(--amber); }
+.quota-bar-fill.danger { background:var(--red); }
+
+.note { font-size:0.72rem; color:var(--dim); line-height:1.5; margin-top:0.4rem; }
+#err-box { display:none; background:rgba(220,60,60,0.08); border:1px solid rgba(220,60,60,0.25); border-radius:8px; padding:0.85rem 1rem; font-family:var(--mono); font-size:0.72rem; color:var(--red); margin-bottom:1rem; }
+</style>
+</head>
+<body>
+
+<!-- ══ LÅS-SKÄRM ══ -->
+<div id="lock">
+  <div style="font-family:var(--mono); font-size:0.8rem; color:var(--muted); letter-spacing:0.08em;">PATCH SHEET — ADMIN</div>
+  <input type="password" id="lock-input" placeholder="Lösenord" autocomplete="off">
+  <button id="lock-btn">Lås upp</button>
+  <div id="lock-error">Fel lösenord.</div>
+</div>
+
+<!-- ══ DASHBOARD ══ -->
+<div id="dashboard">
+  <h1>Patch Sheet — Aktivitet</h1>
+
+  <button id="refresh-btn">↻ Uppdatera</button>
+  <div id="last-updated"></div>
+
+  <div id="err-box"></div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-label">Patches idag</div>
+      <div class="card-value" id="stat-today">—</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Patches senaste 7 dagar</div>
+      <div class="card-value" id="stat-week">—</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Totalt antal patches (alla tider)</div>
+    <div class="card-value" id="stat-total">—</div>
+    <div class="card-sub">Räknat med getCountFromServer() — kostar 1 läsning oavsett mängd data.</div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Grovt kvot-estimat (Spark, dagskvot 50 000 läsningar)</div>
+    <div class="card-value" id="stat-quota-pct">—</div>
+    <div class="quota-bar-track"><div class="quota-bar-fill" id="quota-bar"></div></div>
+    <div class="note" id="quota-note"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Läsningar denna sida just gjorde</div>
+    <div class="card-value" id="stat-cost">—</div>
+    <div class="card-sub">Så att admin-sidan själv inte blir en kvot-risk.</div>
+  </div>
+</div>
+
+<script type="module">
+// ════════════════════════════════
+// ADMIN — fristående, lösenordsskyddad aktivitetsvy
+// ════════════════════════════════
+// ⚠️ FYLL I SAMMA VÄRDEN SOM I index.html (Firebase Console → Project settings → SDK config)
+const FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyAxo3123WJpyVF4RBHUzMTCOvo5VkSWpoU",
+  authDomain:        "patchsheet-shared.firebaseapp.com",
+  projectId:         "patchsheet-shared",
+  storageBucket:      "patchsheet-shared.firebasestorage.app",
+  messagingSenderId: "266182803295",
+  appId:             "1:266182803295:web:05b10585d371c4f05e00ea",
+};
+
+// ⚠️ Sätt ditt eget lösenord här (byt från detta exempel!).
+// Detta är INTE en säkerhetskritisk yta (sidan visar bara grov aggregerad statistik).
+// Ett enkelt klientsidigt lösenord räcker för admin-vyn. Använd något unikt.
+const ADMIN_PASSWORD = "BYT-DETTA-TILL-DITT-EGNA-LÖSENORD";
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import {
+  getFirestore, collection, query, where, getCountFromServer, Timestamp
+} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+
+const fbApp = initializeApp(FIREBASE_CONFIG);
+const db    = getFirestore(fbApp);
+const auth  = getAuth(fbApp);
+
+let readCount = 0; // räknar hur många läsningar DENNA sidladdning gör, för transparens
+
+// ── Lås upp ──
+function tryUnlock() {
+  const input = document.getElementById('lock-input');
+  if (input.value !== ADMIN_PASSWORD) {
+    document.getElementById('lock-error').style.display = 'block';
+    return;
+  }
+  document.getElementById('lock').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+  loadStats();
+}
+document.getElementById('lock-btn').addEventListener('click', tryUnlock);
+document.getElementById('lock-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') tryUnlock();
+});
+
+// ── Hjälpare: midnatt idag / N dagar bakåt, som Firestore Timestamp ──
+function startOfDay(daysAgo = 0) {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - daysAgo);
+  return Timestamp.fromDate(d);
+}
+
+// ── Hämta statistik ──
+async function loadStats() {
+  const btn = document.getElementById('refresh-btn');
+  const errBox = document.getElementById('err-box');
+  btn.disabled = true;
+  btn.textContent = 'Hämtar…';
+  errBox.style.display = 'none';
+  readCount = 0;
+
+  try {
+    await signInAnonymously(auth); // krävs för att Firestore-reglerna ska tillåta läsning
+
+    const patchesRef = collection(db, 'patches');
+
+    // Patches idag — EN count-query, ingen dokumentskanning (krav 1 + 4)
+    const todayQuery = query(patchesRef, where('createdAt', '>=', startOfDay(0)));
+    const todaySnap = await getCountFromServer(todayQuery);
+    readCount++;
+
+    // Patches senaste 7 dagarna — EN count-query över hela fönstret,
+    // inte sju separata dagsfrågor (lägst antal läsningar, krav 3)
+    const weekQuery = query(patchesRef, where('createdAt', '>=', startOfDay(6)));
+    const weekSnap = await getCountFromServer(weekQuery);
+    readCount++;
+
+    // Totalt antal patches någonsin — getCountFromServer() utan filter,
+    // kostar 1 läsning oavsett collectionstorlek (krav 4)
+    const totalSnap = await getCountFromServer(patchesRef);
+    readCount++;
+
+    const today = todaySnap.data().count;
+    const week  = weekSnap.data().count;
+    const total = totalSnap.data().count;
+
+    document.getElementById('stat-today').textContent = today;
+    document.getElementById('stat-week').textContent  = week;
+    document.getElementById('stat-total').textContent = total;
+
+    renderQuotaEstimate(today);
+
+    document.getElementById('last-updated').textContent =
+      'Senast uppdaterad: ' + new Date().toLocaleString('sv-SE');
+    document.getElementById('stat-cost').textContent = readCount + ' st';
+
+  } catch (e) {
+    console.error('Kunde inte hämta statistik:', e);
+    errBox.style.display = 'block';
+    errBox.textContent = 'Kunde inte hämta statistik: ' + (e.message || e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '↻ Uppdatera';
+  }
+}
+
+// ── Grovt kvot-estimat (krav 3) ──
+// Bygger på antagandet att en produktion i snitt drar ~650 läsningar/dag
+// (uppskattat tidigare: 4 crew × 300 markeringar × 2 lyssnare-leveranser).
+// Det här är en FÖRENKLAD tumregel, inte en exakt mätning — bra nog för
+// att se om man närmar sig Spark-planens dagskvot på 50 000 läsningar.
+const ESTIMATED_READS_PER_PRODUCTION_PER_DAY = 650;
+const DAILY_READ_QUOTA = 50000;
+
+function renderQuotaEstimate(patchesToday) {
+  const estimatedReads = patchesToday * ESTIMATED_READS_PER_PRODUCTION_PER_DAY;
+  const pct = Math.min(100, Math.round((estimatedReads / DAILY_READ_QUOTA) * 100));
+
+  document.getElementById('stat-quota-pct').textContent = pct + '%';
+
+  const bar = document.getElementById('quota-bar');
+  bar.style.width = pct + '%';
+  bar.classList.toggle('warn', pct >= 50 && pct < 80);
+  bar.classList.toggle('danger', pct >= 80);
+
+  document.getElementById('quota-note').textContent =
+    `${patchesToday} patch(ar) idag × ~${ESTIMATED_READS_PER_PRODUCTION_PER_DAY} läsningar/dag (uppskattning) ≈ ${estimatedReads.toLocaleString('sv-SE')} läsningar av ${DAILY_READ_QUOTA.toLocaleString('sv-SE')}.`;
+}
+
+document.getElementById('refresh-btn').addEventListener('click', loadStats);
+</script>
+
+</body>
+</html>

@@ -1,0 +1,101 @@
+rules_version = '2';
+// ⚠️ App Check: aktivera "Enforce" för Firestore i Firebase Console → App Check → APIs
+// efter att klienten verifierats skicka giltiga App Check-tokens (se separat checklista).
+// Detta är en Console-inställning, inte något som uttrycks i regelspråket här.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /patches/{patchId} {
+      // Vem som helst med länken (autentiserad anonymt) kan läsa och skapa en patch
+      // Detta täcker även getCountFromServer()-aggregeringar (används av admin.html) —
+      // count-queries räknas som "read" i regelspråket, ingen separat regel behövs.
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && request.resource.data.keys().hasAll(['rows', 'createdAt'])
+                    && request.resource.data.rows is list;
+      // Patchen i sig ska inte gå att skriva över efter skapande (rows och ownerToken är statiska)
+      allow update, delete: if false;
+
+      match /marks/{fixtureKey} {
+        allow read: if request.auth != null;
+        allow create, update: if request.auth != null
+                    && request.resource.data.keys().hasAll(['name', 'ts'])
+                    && request.resource.data.name is string
+                    && request.resource.data.name.size() <= 20;
+        allow delete: if request.auth != null;
+      }
+
+      // ⚠️ NYTT SCHEMA (ersätter ovanstående marks-subcollection för nya patches):
+      // Alla markeringar för en patch samlas i ETT dokument med en map-fält
+      // "byKey" istället för ett dokument per fixture. Detta minskar antalet
+      // Firestore-läsningar drastiskt vid onSnapshot, eftersom klienten bara
+      // lyssnar på ett enda dokument istället för en läsning per fixture.
+      //
+      // Skrivskydd: en skrivning får bara ändra EN nyckel i byKey-mappen
+      // jämfört med föregående version (markera/avmarkera en fixture i taget),
+      // ELLER nollställa hela mappen till tom (Reset-knappen).
+      // Regeln tillåter storleksändring ±1 eller reset till tom.
+      // Detta förhindrar godtycklig overwrite av hela dokumentet.
+      // (Kombineras med runTransaction + klientsidig logik för bästa skydd.)
+      //
+      // ⚠️ Max 5 unika personer per patch (MAX_PEOPLE_PER_PATCH i index.html)
+      // är ENDAST enforcad klientsidigt, inte här i reglerna. Att räkna unika
+      // namn i en map kräver iteration som Firestores regelspråk inte stödjer
+      // praktiskt. Det här är en användningsbegränsning, inte en säkerhetsgräns
+      // — adekvat för syftet (hålla nere antal samtidiga markerare per patch)
+      // men kan tekniskt kringgås av någon som anropar Firestore direkt.
+      match /state/marks {
+        allow read: if request.auth != null;
+
+        // Skapande: tillåtet bara om mappen har högst 1 nyckel (första markeringen)
+        allow create: if request.auth != null
+                    && request.resource.data.keys().hasAll(['byKey'])
+                    && request.resource.data.byKey is map
+                    && request.resource.data.byKey.size() <= 1;
+
+        allow update: if request.auth != null
+                    && request.resource.data.keys().hasAll(['byKey'])
+                    && request.resource.data.byKey is map
+                    && request.resource.data.byKey.size() <= 500
+                    && (
+                      // Reset — hela mappen töms till tom map
+                      request.resource.data.byKey.size() == 0
+                      ||
+                      // Första markeringen (från tom till 1 nyckel)
+                      (resource.data.byKey.size() == 0 && request.resource.data.byKey.size() == 1)
+                      ||
+                      // Exakt en förändring: storlek ökar eller minskar med 1
+                      // (markera en ny fixture ELLER avmarkera en befintlig)
+                      request.resource.data.byKey.size() == resource.data.byKey.size() + 1
+                      ||
+                      request.resource.data.byKey.size() == resource.data.byKey.size() - 1
+                    );
+
+        allow delete: if false;
+      }
+
+      match /history/{entryId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null
+                    && request.resource.data.keys().hasAll(['name', 'key', 'fixtureLabel', 'action', 'ts'])
+                    && request.resource.data.name is string
+                    && request.resource.data.name.size() <= 20
+                    && request.resource.data.action in ['marked', 'unmarked'];
+        // Historik är append-only — ingen får ändra eller radera enskilda poster
+        allow update, delete: if false;
+      }
+    }
+
+    // Rapporter om olämpligt innehåll (namn) — skrivbara av alla autentiserade
+    // klienter, men INTE läsbara av klienter. Granskas manuellt av ägaren via
+    // Firebase Console eller Admin SDK.
+    match /reports/{reportId} {
+      allow read: if false;
+      allow create: if request.auth != null
+                    && request.resource.data.keys().hasAll(['patchId', 'reportedName', 'reportedBy', 'ts'])
+                    && request.resource.data.reportedName is string
+                    && request.resource.data.reportedName.size() <= 20;
+      allow update, delete: if false;
+    }
+  }
+}
