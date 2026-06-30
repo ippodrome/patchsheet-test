@@ -851,11 +851,6 @@ body.help-mode #help-toggle { cursor: pointer; outline: none; }
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
         <span data-t="historyBtn">Historik</span>
       </button>
-      <button class="btn-bar" id="btn-sv-toggle" style="display:none">
-        <svg id="sv-toggle-icon-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-        <svg id="sv-toggle-icon-detail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-        <span id="sv-toggle-label" data-t="svToggleDetail">Detalj</span>
-      </button>
       <button class="btn-bar" id="btn-guide" data-help="helpGuide">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
         <span data-t="guide">Guide</span>
@@ -1201,8 +1196,7 @@ const STRINGS = {
     helpFootprint:'Antal DMX-kanaler fixturen använder.',
     helpMarkBubble:'Vem som markerat fixturen som klar.',
     expandBtn:'Visa detaljer',
-    svToggleDetail:'Detalj',
-    svToggleList:'Lista',
+    svBack:'Lista',
     svModeLabel:'Mode',
     svFixtureLabel:'Fixture',
     svChannelsLabel:'Kanaler',
@@ -1342,8 +1336,7 @@ const STRINGS = {
     helpFootprint:'Number of DMX channels the fixture uses.',
     helpMarkBubble:'Who marked this fixture as done.',
     expandBtn:'View details',
-    svToggleDetail:'Detail',
-    svToggleList:'List',
+    svBack:'List',
     svModeLabel:'Mode',
     svFixtureLabel:'Fixture',
     svChannelsLabel:'Channels',
@@ -1640,7 +1633,6 @@ function applyAllFilters() {
 function showViewer() {
   document.getElementById('start').style.display = 'none';
   document.getElementById('viewer').style.display = 'block';
-  document.getElementById('btn-sv-toggle').style.display = 'flex';
   window.scrollTo(0,0);
 }
 function showStart() {
@@ -1648,7 +1640,6 @@ function showStart() {
   document.getElementById('start').style.display  = 'flex';
   document.getElementById('clipboard-error').style.display = 'none';
   document.getElementById('file-input').value = '';
-  document.getElementById('btn-sv-toggle').style.display = 'none';
   renderRecentProjects(); // uppdatera listan ifall man precis besökt något nytt
 }
 
@@ -2238,7 +2229,6 @@ if ('serviceWorker' in navigator) {
 // SINGLE-VIEW — fullskärmsvisning av en fixture i taget
 // ════════════════════════════════
 let svCurrentKey = null; // fixtureKey för den fixture som visas
-let svLastKey = null;    // senast besökta — toggle-pillen återvänder hit
 let svKeys = [];         // ordnad lista av keys enligt aktiv filtrering+sortering
 let svNoteOriginal = ''; // originaltext för att avgöra om Spara ska vara aktivt
 
@@ -2262,7 +2252,6 @@ function renderSingleView(key) {
   const row = getRowByKey(key);
   if (!row) return;
   svCurrentKey = key;
-  svLastKey = key; // kom ihåg för toggle-pillen
 
   const idx = svKeys.indexOf(key);
   document.getElementById('sv-title').textContent = '# ' + row.num;
@@ -2358,40 +2347,13 @@ function openSingleView(key) {
   renderSingleView(key);
   document.getElementById('single-view').classList.add('open');
   document.body.style.overflow = 'hidden'; // förhindra bakgrundsscroll
-  updateSvToggleBtn(true);
 }
 
 function closeSingleView() {
   document.getElementById('single-view').classList.remove('open');
   document.body.style.overflow = '';
   svCurrentKey = null;
-  updateSvToggleBtn(false);
 }
-
-// Uppdatera toggle-pillens ikon och label beroende på läge
-function updateSvToggleBtn(inDetailMode) {
-  document.getElementById('sv-toggle-icon-list').style.display   = inDetailMode ? 'none' : '';
-  document.getElementById('sv-toggle-icon-detail').style.display = inDetailMode ? '' : 'none';
-  const label = document.getElementById('sv-toggle-label');
-  label.dataset.t = inDetailMode ? 'svToggleList' : 'svToggleDetail';
-  label.textContent = t(label.dataset.t);
-  document.getElementById('btn-sv-toggle').classList.toggle('share-active', inDetailMode);
-}
-
-document.getElementById('btn-sv-toggle').addEventListener('click', () => {
-  const isOpen = document.getElementById('single-view').classList.contains('open');
-  if (isOpen) {
-    // Stäng single-view → gå tillbaka till lista
-    closeSingleView();
-  } else {
-    // Öppna single-view: återgå till senast besökta, annars börja från topp
-    const keys = getSvKeys();
-    if (!keys.length) return;
-    const key = (svLastKey && keys.includes(svLastKey)) ? svLastKey : keys[0];
-    openSingleView(key);
-    updateSvToggleBtn(true);
-  }
-});
 
 function navigateSv(delta) {
   if (!svCurrentKey) return;
@@ -2944,7 +2906,6 @@ async function startSharedSession(id) {
   window.sharedPatchId = id;
   document.getElementById('btn-share').classList.add('share-active');
   document.getElementById('btn-history').style.display = 'flex';
-  document.getElementById('btn-sv-toggle').style.display = 'flex';
 
   if (unsubMarks) unsubMarks();
   // BRYTANDE SCHEMA-BYTE: marks lagras nu som EN map i patches/{id}/state/marks
